@@ -26,8 +26,6 @@ import com.facebook.react.common.annotations.VisibleForTesting;
 import com.facebook.react.module.annotations.ReactModule;
 import com.facebook.systrace.Systrace;
 import com.facebook.systrace.TraceListener;
-import java.lang.annotation.Annotation;
-import java.lang.annotation.Native;
 import java.lang.ref.WeakReference;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -265,6 +263,31 @@ public class CatalystInstanceImpl implements CatalystInstance {
   }
 
   @Override
+  public void runJSBundle(JSBundleLoader loader) {
+    Log.d(ReactConstants.TAG, "CatalystInstanceImpl.runJSBundle()");
+    Assertions.assertCondition(!mJSBundleHasLoaded, "JS bundle was already loaded!");
+    // incrementPendingJSCalls();
+    loader.loadScript(CatalystInstanceImpl.this);
+
+    synchronized (mJSCallsPendingInitLock) {
+
+      // Loading the bundle is queued on the JS thread, but may not have
+      // run yet.  It's safe to set this here, though, since any work it
+      // gates will be queued on the JS thread behind the load.
+      mAcceptCalls = true;
+
+      for (PendingJSCall function : mJSCallsPendingInit) {
+        function.call(this);
+      }
+      mJSCallsPendingInit.clear();
+      mJSBundleHasLoaded = true;
+    }
+
+    // This is registered after JS starts since it makes a JS call
+    Systrace.registerListener(mTraceListener);
+  }
+
+  @Override
   public boolean hasRunJSBundle() {
     synchronized (mJSCallsPendingInitLock) {
       return mJSBundleHasLoaded && mAcceptCalls;
@@ -395,9 +418,9 @@ public class CatalystInstanceImpl implements CatalystInstance {
     // We assume that the instance manager blocks on running the JS bundle. If
     // that changes, then we need to set mAcceptCalls just after posting the
     // task that will run the js bundle.
-    Assertions.assertCondition(
-        mAcceptCalls,
-        "RunJSBundle hasn't completed.");
+    // Assertions.assertCondition(
+    //     mAcceptCalls,
+    //     "RunJSBundle hasn't completed.");
     mInitialized = true;
     mNativeModulesQueueThread.runOnQueue(new Runnable() {
       @Override
@@ -627,7 +650,7 @@ public class CatalystInstanceImpl implements CatalystInstance {
           Assertions.assertNotNull(mReactQueueConfigurationSpec),
           Assertions.assertNotNull(mJSExecutor),
           Assertions.assertNotNull(mRegistry),
-          Assertions.assertNotNull(mJSBundleLoader),
+          mJSBundleLoader,
           Assertions.assertNotNull(mNativeModuleCallExceptionHandler));
     }
   }

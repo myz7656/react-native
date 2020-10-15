@@ -24,6 +24,8 @@ public interface CatalystInstance
     extends MemoryPressureListener, JSInstance, JSBundleLoaderDelegate {
   void runJSBundle();
 
+  void runJSBundle(JSBundleLoader loader);
+
   // Returns the status of running the JS bundle; waits for an answer if runJSBundle is running
   boolean hasRunJSBundle();
 

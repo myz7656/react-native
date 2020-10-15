@@ -38,6 +38,8 @@ import android.content.Intent;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Process;
+
+import androidx.annotation.NonNull;
 import androidx.core.view.ViewCompat;
 import android.util.Log;
 import android.view.View;
@@ -101,6 +103,8 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
+
 import javax.annotation.Nullable;
 
 /**
@@ -1218,5 +1222,178 @@ public class ReactInstanceManager {
       ((ReactPackageLogger) reactPackage).endProcessPackage();
     }
     SystraceMessage.endSection(TRACE_TAG_REACT_JAVA_BRIDGE).flush();
+  }
+
+
+
+  /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+  private AtomicInteger mHasCreatingInitialContext = new AtomicInteger(0);
+  private ReactBundleManager mBundleManager = new ReactBundleManager();
+
+  public Context getApplicationContext() {
+    return mApplicationContext;
+  }
+
+  public ReactBundleManager getBundleManager() {
+    return mBundleManager;
+  }
+
+  @ThreadConfined(UI)
+  public void createReactContextSafely() {
+    Log.i("multi-bundle", "createReactContextSafely");
+    Log.d(ReactConstants.TAG, "ReactInstanceManager.createReactContextSafely()");
+    while (mHasCreatingInitialContext.compareAndSet(0, 1)) {
+      try {
+        JavaScriptExecutor executor = mJavaScriptExecutorFactory.create();
+        ReactApplicationContext context = createReactContextOnUI(executor);
+        setupReactContextOnUI(context);
+      } catch (Exception e) {
+        Log.e(ReactConstants.TAG, "ReactInstanceManager.createReactContextSafely()");
+      }
+    }
+  }
+
+  @ThreadConfined(UI)
+  private ReactApplicationContext createReactContextOnUI(JavaScriptExecutor jsExecutor) {
+    Log.i("multi-bundle", "createReactContextOnUI ");
+    Log.d(ReactConstants.TAG, "ReactInstanceManager.createReactContext()");
+    ReactMarker.logMarker(CREATE_REACT_CONTEXT_START, jsExecutor.getName());
+    final ReactApplicationContext reactContext = new ReactApplicationContext(mApplicationContext);
+
+    NativeModuleCallExceptionHandler exceptionHandler = mNativeModuleCallExceptionHandler != null
+      ? mNativeModuleCallExceptionHandler
+      : mDevSupportManager;
+    reactContext.setNativeModuleCallExceptionHandler(exceptionHandler);
+
+    NativeModuleRegistry nativeModuleRegistry = processPackages(reactContext, mPackages, false);
+
+    CatalystInstanceImpl.Builder catalystInstanceBuilder = new CatalystInstanceImpl.Builder()
+      .setReactQueueConfigurationSpec(ReactQueueConfigurationSpec.createDefault())
+      .setJSExecutor(jsExecutor)
+      .setRegistry(nativeModuleRegistry)
+      .setJSBundleLoader(null) /*** Changed: Multiple Bundle, Single Engine */
+      .setNativeModuleCallExceptionHandler(exceptionHandler);
+
+    ReactMarker.logMarker(CREATE_CATALYST_INSTANCE_START);
+    // CREATE_CATALYST_INSTANCE_END is in JSCExecutor.cpp
+    Systrace.beginSection(TRACE_TAG_REACT_JAVA_BRIDGE, "createCatalystInstance");
+    final CatalystInstance catalystInstance;
+    try {
+      catalystInstance = catalystInstanceBuilder.build();
+    } finally {
+      Systrace.endSection(TRACE_TAG_REACT_JAVA_BRIDGE);
+      ReactMarker.logMarker(CREATE_CATALYST_INSTANCE_END);
+    }
+    if (mJSIModulePackage != null) {
+      catalystInstance.addJSIModules(mJSIModulePackage
+        .getJSIModules(reactContext, catalystInstance.getJavaScriptContextHolder()));
+    }
+
+    if (mBridgeIdleDebugListener != null) {
+      catalystInstance.addBridgeIdleDebugListener(mBridgeIdleDebugListener);
+    }
+    if (Systrace.isTracing(TRACE_TAG_REACT_APPS | TRACE_TAG_REACT_JS_VM_CALLS)) {
+      catalystInstance.setGlobalVariable("__RCTProfileIsProfiling", "true");
+    }
+    /**
+     * Changed: Multiple Bundle, Single Engine
+     */
+    // ReactMarker.logMarker(ReactMarkerConstants.PRE_RUN_JS_BUNDLE_START);
+    // Systrace.beginSection(TRACE_TAG_REACT_JAVA_BRIDGE, "runJSBundle");
+    // catalystInstance.runJSBundle();
+    // Systrace.endSection(TRACE_TAG_REACT_JAVA_BRIDGE);
+
+    reactContext.initializeWithInstance(catalystInstance);
+
+    return reactContext;
+  }
+
+  @ThreadConfined(UI)
+  private void setupReactContextOnUI(final ReactApplicationContext reactContext) {
+    Log.i("multi-bundle", "lsetupReactContextOnUI ");
+    Log.d(ReactConstants.TAG, "ReactInstanceManager.setupReactContext()");
+    ReactMarker.logMarker(PRE_SETUP_REACT_CONTEXT_END);
+    ReactMarker.logMarker(SETUP_REACT_CONTEXT_START);
+    Systrace.beginSection(TRACE_TAG_REACT_JAVA_BRIDGE, "setupReactContext");
+    synchronized (mAttachedReactRoots) {
+      synchronized (mReactContextLock) {
+        mCurrentReactContext = Assertions.assertNotNull(reactContext);
+      }
+
+      CatalystInstance catalystInstance =
+        Assertions.assertNotNull(reactContext.getCatalystInstance());
+
+      catalystInstance.initialize();
+      mDevSupportManager.onNewReactContextCreated(reactContext);
+      mMemoryPressureRouter.addMemoryPressureListener(catalystInstance);
+      moveReactContextToCurrentLifecycleState();
+
+      /**
+       * Changed: Multiple Bundle, Single Engine
+       */
+       ReactMarker.logMarker(ATTACH_MEASURED_ROOT_VIEWS_START);
+       for (ReactRoot reactRoot : mAttachedReactRoots) {
+         attachRootViewToInstance(reactContext, reactRoot);
+       }
+       ReactMarker.logMarker(ATTACH_MEASURED_ROOT_VIEWS_END);
+    }
+
+    ReactInstanceEventListener[] listeners =
+      new ReactInstanceEventListener[mReactInstanceEventListeners.size()];
+    final ReactInstanceEventListener[] finalListeners =
+      mReactInstanceEventListeners.toArray(listeners);
+
+    UiThreadUtil.runOnUiThread(
+      new Runnable() {
+        @Override
+        public void run() {
+          for (ReactInstanceEventListener listener : finalListeners) {
+            listener.onReactContextInitialized(reactContext);
+          }
+        }
+      });
+    Systrace.endSection(TRACE_TAG_REACT_JAVA_BRIDGE);
+    ReactMarker.logMarker(SETUP_REACT_CONTEXT_END);
+    reactContext.runOnJSQueueThread(
+      new Runnable() {
+        @Override
+        public void run() {
+          Process.setThreadPriority(Process.THREAD_PRIORITY_DEFAULT);
+          ReactMarker.logMarker(CHANGE_THREAD_PRIORITY, "js_default");
+        }
+      });
+    reactContext.runOnNativeModulesQueueThread(
+      new Runnable() {
+        @Override
+        public void run() {
+          Process.setThreadPriority(Process.THREAD_PRIORITY_DEFAULT);
+        }
+      });
+  }
+
+  private void attachRootViewToInstance(@NonNull ReactContext reactContext, final ReactRoot reactRoot) {
+    Log.i("multi-bundle", "attachRootViewToInstance");
+    reactRoot.runJSBundle();
+
+    reactContext.runOnNativeModulesQueueThread(() -> {
+      attachRootViewToInstance(reactRoot);
+    });
+  }
+
+  @ThreadConfined(UI)
+  public void attachRootViewSafely(ReactRoot reactRoot) {
+    Log.i("multi-bundle", "attachRootViewSafely");
+    UiThreadUtil.assertOnUiThread();
+    mAttachedReactRoots.add(reactRoot);
+
+    // Reset reactRoot content as it's going to be populated by the application content from JS.
+    clearReactRoot(reactRoot);
+
+    // If react context is being created in the background, JS application will be started
+    // automatically when creation completes, as reactRoot reactRoot is part of the attached reactRoot reactRoot list.
+    ReactContext currentContext = getCurrentReactContext();
+    if (currentContext != null) {
+      attachRootViewToInstance(currentContext, reactRoot);
+    }
   }
 }

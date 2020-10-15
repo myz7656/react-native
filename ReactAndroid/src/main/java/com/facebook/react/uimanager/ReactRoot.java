@@ -34,6 +34,11 @@ public interface ReactRoot {
   void setRootViewTag(int rootViewTag);
 
   /**
+   * Load JS
+   */
+  void runJSBundle();
+
+  /**
    * Calls into JS to start the React application.
    */
   void runApplication();

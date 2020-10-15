@@ -23,6 +23,9 @@ const {
   ToolbarAndroid,
   UIManager,
   View,
+  NativeModules,
+  TouchableOpacity,
+  Text
 } = require('react-native');
 const RNTesterActions = require('./RNTesterActions');
 const RNTesterExampleContainer = require('./RNTesterExampleContainer');
@@ -124,6 +127,9 @@ class RNTesterApp extends React.Component<Props, RNTesterNavigationState> {
   _renderDrawerContent = () => {
     return (
       <View style={styles.drawerContentWrapper}>
+        <TouchableOpacity style={styles.jump} onPress={this._onPress}>
+          <Text>点我测试路由跳转</Text>
+        </TouchableOpacity>
         <RNTesterExampleList
           list={RNTesterList}
           displayTitleRow={true}
@@ -133,6 +139,10 @@ class RNTesterApp extends React.Component<Props, RNTesterNavigationState> {
       </View>
     );
   };
+
+  _onPress = () => {
+    NativeModules.RouterModule.navigate();
+  }
 
   _renderApp() {
     const {openExample} = this.state;
@@ -250,8 +260,15 @@ const styles = StyleSheet.create({
     paddingTop: StatusBar.currentHeight,
     backgroundColor: 'white',
   },
+  jump: {
+    backgroundColor: 'red',
+    height: 40,
+    alignItems: 'center',
+    alignContent: 'center'
+  }
 });
 
 AppRegistry.registerComponent('RNTesterApp', () => RNTesterApp);
+AppRegistry.registerComponent('RNTesterTargetApp', () => RNTesterApp);
 
 module.exports = RNTesterApp;

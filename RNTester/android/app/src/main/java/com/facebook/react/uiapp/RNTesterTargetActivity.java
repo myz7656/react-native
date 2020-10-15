@@ -16,7 +16,7 @@ import com.facebook.react.ReactActivityDelegate;
 
 import javax.annotation.Nullable;
 
-public class RNTesterActivity extends ReactActivity {
+public class RNTesterTargetActivity extends ReactActivity {
   public static class RNTesterActivityDelegate extends ReactActivityDelegate {
     private static final String PARAM_ROUTE = "route";
     private Bundle mInitialProps = null;
@@ -49,6 +49,12 @@ public class RNTesterActivity extends ReactActivity {
   }
 
   @Override
+  public void onBackPressed() {
+    super.onBackPressed();
+    finish();
+  }
+
+  @Override
   protected ReactActivityDelegate createReactActivityDelegate() {
     return new RNTesterActivityDelegate(this, getBundleName(), getMainComponentName());
   }
@@ -61,6 +67,6 @@ public class RNTesterActivity extends ReactActivity {
 
   @Override
   protected String getMainComponentName() {
-    return "RNTesterApp";
+    return "RNTesterTargetApp";
   }
 }

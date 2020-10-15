@@ -11,6 +11,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.os.Build;
 import android.os.Bundle;
+import android.util.Log;
 import android.view.KeyEvent;
 
 import com.facebook.infer.annotation.Assertions;
@@ -29,6 +30,7 @@ import javax.annotation.Nullable;
 public class ReactActivityDelegate {
 
   private final @Nullable Activity mActivity;
+  private @Nullable String mBundleName = "";
   private final @Nullable String mMainComponentName;
 
   private @Nullable ReactRootView mReactRootView;
@@ -44,6 +46,15 @@ public class ReactActivityDelegate {
 
   public ReactActivityDelegate(ReactActivity activity, @Nullable String mainComponentName) {
     mActivity = activity;
+    mMainComponentName = mainComponentName;
+  }
+
+  /**
+   * Changed: Multiple Bundle, Single Engine
+   */
+  public ReactActivityDelegate(ReactActivity activity, @Nullable String bundleName, @Nullable String mainComponentName) {
+    mActivity = activity;
+    mBundleName = bundleName;
     mMainComponentName = mainComponentName;
   }
 
@@ -70,27 +81,35 @@ public class ReactActivityDelegate {
     return getReactNativeHost().getReactInstanceManager();
   }
 
+  public String getBundleName() {
+    return mBundleName;
+  }
+
   public String getMainComponentName() {
     return mMainComponentName;
   }
 
   protected void onCreate(Bundle savedInstanceState) {
+    String bundleName = getBundleName();
     String mainComponentName = getMainComponentName();
-    if (mainComponentName != null) {
-      loadApp(mainComponentName);
+    if (bundleName != null && mainComponentName != null) {
+      loadApp(bundleName, mainComponentName);
     }
     mDoubleTapReloadRecognizer = new DoubleTapReloadRecognizer();
   }
 
-  protected void loadApp(String appKey) {
+  protected void loadApp(String bundle, String appKey) {
     if (mReactRootView != null) {
       throw new IllegalStateException("Cannot loadApp while app is already running.");
     }
     mReactRootView = createRootView();
+    Log.i("multi-bundle", "loadApp: bundle " + bundle + ", component " + appKey);
     mReactRootView.startReactApplication(
       getReactNativeHost().getReactInstanceManager(),
+      bundle,
       appKey,
-      getLaunchOptions());
+      getLaunchOptions(),
+      null);
     getPlainActivity().setContentView(mReactRootView);
   }
 

@@ -30,6 +30,10 @@ public abstract class ReactActivity extends AppCompatActivity
     mDelegate = createReactActivityDelegate();
   }
 
+  protected @Nullable String getBundleName() {
+    return null;
+  }
+
   /**
    * Returns the name of the main component registered from JavaScript.
    * This is used to schedule rendering of the component.
@@ -43,7 +47,7 @@ public abstract class ReactActivity extends AppCompatActivity
    * Called at construction time, override if you have a custom delegate implementation.
    */
   protected ReactActivityDelegate createReactActivityDelegate() {
-    return new ReactActivityDelegate(this, getMainComponentName());
+    return new ReactActivityDelegate(this, getBundleName(), getMainComponentName());
   }
 
   @Override
@@ -131,9 +135,5 @@ public abstract class ReactActivity extends AppCompatActivity
 
   protected final ReactInstanceManager getReactInstanceManager() {
     return mDelegate.getReactInstanceManager();
-  }
-
-  protected final void loadApp(String appKey) {
-    mDelegate.loadApp(appKey);
   }
 }

@@ -18,6 +18,7 @@ import android.os.Build;
 import android.os.Bundle;
 import android.util.AttributeSet;
 import android.util.DisplayMetrics;
+import android.util.Log;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.Surface;
@@ -30,6 +31,7 @@ import com.facebook.common.logging.FLog;
 import com.facebook.infer.annotation.Assertions;
 import com.facebook.react.bridge.Arguments;
 import com.facebook.react.bridge.CatalystInstance;
+import com.facebook.react.bridge.JSBundleLoader;
 import com.facebook.react.bridge.ReactContext;
 import com.facebook.react.bridge.ReactMarker;
 import com.facebook.react.bridge.ReactMarkerConstants;
@@ -80,6 +82,7 @@ public class ReactRootView extends FrameLayout implements RootView, ReactRoot {
   }
 
   private @Nullable ReactInstanceManager mReactInstanceManager;
+  private @Nullable String mJSBundleName;
   private @Nullable String mJSModuleName;
   private @Nullable Bundle mAppProperties;
   private @Nullable String mInitialUITemplate;
@@ -360,7 +363,7 @@ public class ReactRootView extends FrameLayout implements RootView, ReactRoot {
    * {@see #startReactApplication(ReactInstanceManager, String, android.os.Bundle, String)}
    */
   public void startReactApplication(ReactInstanceManager reactInstanceManager, String moduleName, @Nullable Bundle initialProperties) {
-    startReactApplication(reactInstanceManager, moduleName, initialProperties, null);
+    startReactApplication(reactInstanceManager, null, moduleName, initialProperties, null);
   }
 
   /**
@@ -371,6 +374,7 @@ public class ReactRootView extends FrameLayout implements RootView, ReactRoot {
    */
   public void startReactApplication(
       ReactInstanceManager reactInstanceManager,
+      String bundleName,
       String moduleName,
       @Nullable Bundle initialProperties,
       @Nullable String initialUITemplate) {
@@ -386,6 +390,7 @@ public class ReactRootView extends FrameLayout implements RootView, ReactRoot {
         "This root view has already been attached to a catalyst instance manager");
 
       mReactInstanceManager = reactInstanceManager;
+      mJSBundleName = bundleName;
       mJSModuleName = moduleName;
       mAppProperties = initialProperties;
       mInitialUITemplate = initialUITemplate;
@@ -394,9 +399,10 @@ public class ReactRootView extends FrameLayout implements RootView, ReactRoot {
         // TODO initialize surface here
       }
 
-      if (!mReactInstanceManager.hasStartedCreatingInitialContext()) {
-        mReactInstanceManager.createReactContextInBackground();
-      }
+      // if (!mReactInstanceManager.hasStartedCreatingInitialContext()) {
+      //   mReactInstanceManager.createReactContextInBackground();
+      // }
+      mReactInstanceManager.createReactContextSafely();
 
       attachToReactInstanceManager();
 
@@ -483,12 +489,36 @@ public class ReactRootView extends FrameLayout implements RootView, ReactRoot {
     }
   }
 
+  @Override
+  public void runJSBundle() {
+    Log.i("multi-bundle", "runJSBundle " + mJSBundleName);
+    ReactContext reactContext = mReactInstanceManager.getCurrentReactContext();
+    if (reactContext == null) {
+      return;
+    }
+
+    ReactBundleManager bundleManager = mReactInstanceManager.getBundleManager();
+    boolean loaded = bundleManager.isLoaded(mJSBundleName);
+    Log.i("multi-bundle", "runJSBundle loaded: " + loaded);
+    if (loaded) {
+      return;
+    }
+
+    Context context = mReactInstanceManager.getApplicationContext();
+    JSBundleLoader bundleLoader = JSBundleLoader.createAssetLoader(context, "assets://" + mJSBundleName, false);
+    CatalystInstance catalystInstance = reactContext.getCatalystInstance();
+    catalystInstance.runJSBundle(bundleLoader);
+
+    bundleManager.setState(mJSBundleName, true);
+  }
+
   /**
    * Calls into JS to start the React application. Can be called multiple times with the
    * same rootTag, which will re-render the application from the root.
    */
   @Override
   public void runApplication() {
+    Log.i("multi-bundle", "runApplication");
       Systrace.beginSection(TRACE_TAG_REACT_JAVA_BRIDGE, "ReactRootView.runApplication");
       try {
         if (mReactInstanceManager == null || !mIsAttachedToInstance) {
@@ -555,7 +585,8 @@ public class ReactRootView extends FrameLayout implements RootView, ReactRoot {
       }
 
       mIsAttachedToInstance = true;
-      Assertions.assertNotNull(mReactInstanceManager).attachRootView(this);
+      // Assertions.assertNotNull(mReactInstanceManager).attachRootView(this);
+      Assertions.assertNotNull(mReactInstanceManager).attachRootViewSafely(this);
       getViewTreeObserver().addOnGlobalLayoutListener(getCustomGlobalLayoutListener());
     } finally {
       Systrace.endSection(TRACE_TAG_REACT_JAVA_BRIDGE);
